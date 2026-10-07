@@ -506,10 +506,13 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
     <!-- Selector de evento -->
     <div id="caja-evento-selector" style="background:#161512;padding:16px;margin-bottom:14px">
       <div id="caja-sugerencia-evento" style="display:none;background:#1a2a1a;border:1px solid #4CAF50;border-radius:0;padding:10px;margin-bottom:10px"></div>
-      <div style="color:var(--orange);font-size:11px;font-weight:900;margin-bottom:8px">EVENTO A ATENDER</div>
-      <select id="caja-evento-select" onchange="seleccionarEventoCaja()" style="width:100%;background:#1e1e1e;border:1px solid #333;border-radius:0;padding:12px;color:#fff;font-size:14px">
-        <option value="">Selecciona un evento...</option>
-      </select>
+      <!-- Decision del 7-oct-2026: ya no se elige el evento en una lista suelta. Se entra por
+           un solo letrero grande "ABRIR TIENDA": se elige evento y carpa, y queda abierta. El
+           select viejo se deja escondido porque el resto del programa lo sigue usando por dentro. -->
+      <select id="caja-evento-select" onchange="seleccionarEventoCaja()" style="display:none"><option value="">Selecciona un evento...</option></select>
+      <div style="color:var(--gray);font-size:12px;text-align:center;margin-bottom:12px">La tienda está cerrada. Elige el evento y la carpa para empezar.</div>
+      <button onclick="abrirSelectorEventoTienda()" style="width:100%;background:var(--orange);color:#000;border:none;border-radius:0;padding:28px 12px;font-size:24px;font-weight:900;letter-spacing:1px;cursor:pointer">ABRIR TIENDA</button>
+      <div id="caja-abrir-estado" style="color:var(--gray);font-size:11px;text-align:center;margin-top:10px;min-height:14px"></div>
     </div>
 
     <!-- Info del evento seleccionado (fijo arriba) -->
@@ -529,7 +532,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
             <div style="color:#ff6b6b;font-size:11px;font-weight:800" id="caja-nueva-hora-cierre-display"></div>
           </div>
           <div style="display:flex;gap:1px;margin-top:10px;flex-wrap:wrap;background:#000">
-            <button onclick="limpiarEvento()" style="background:#2a1a1a;color:#ff6b6b;border:none;border-radius:0;padding:5px 8px;font-size:10px;cursor:pointer">Limpiar</button>
+            <button onclick="limpiarEvento()" style="background:#2a1a1a;color:#ff6b6b;border:none;border-radius:0;padding:5px 8px;font-size:10px;cursor:pointer">Salir del evento</button>
             <button onclick="resetearPedidosEvento()" title="Borrar todos los pedidos de este evento (para pruebas)" style="background:#2a2216;color:#F5A623;border:none;border-radius:0;padding:5px 8px;font-size:10px;cursor:pointer">🔄 Resetear pedidos</button>
             <button id="caja-btn-ampliar-visible" onclick="mostrarAmpliarCierre()" style="display:none;background:#2a2216;color:var(--orange);border:none;border-radius:0;padding:5px 8px;font-size:10px;cursor:pointer">+ Ampliar</button>
           </div>
@@ -1070,6 +1073,16 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
   }
 </style>
 <!-- Ventana para elegir en cual carpa esta esta tableta, cuando el evento tiene varias -->
+<div class="modal-overlay" id="tienda-evento-modal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div style="color:var(--orange);font-size:16px;font-weight:800;margin-bottom:4px">¿Qué evento vas a abrir?</div>
+    <div style="color:var(--gray);font-size:12px;margin-bottom:14px">Primero salen los de hoy. Los que todavía no empiezan están más abajo, con los días que faltan.</div>
+    <div id="tienda-evento-opciones" style="display:flex;flex-direction:column;gap:1px;background:#000"></div>
+    <button onclick="document.getElementById('tienda-evento-modal').classList.remove('open')" style="width:100%;background:#2a2a2a;color:#fff;border:none;border-radius:0;padding:12px;font-size:13px;font-weight:700;cursor:pointer;margin-top:12px">Cancelar</button>
+  </div>
+</div>
+
 <div class="modal-overlay" id="carpa-modal">
   <div class="modal">
     <div class="modal-handle"></div>
@@ -1766,14 +1779,8 @@ async function actualizarEventoSupabase(id, evento) {
       if (data) {
         cajaEventoSeleccionado = data;
         mostrarEventoActivoEnCaja(data);
-        // Check if store should still be open
-        const debeEstarAbierto = verificarHorarioAuto(data);
-        if (debeEstarAbierto === false && tiendaAbierta) {
-          const modal = document.getElementById('ampliar-modal');
-          if (modal) modal.style.display = 'flex';
-        } else if (debeEstarAbierto === true && !tiendaAbierta) {
-          await abrirTiendaBtn();
-        }
+        // Decision del 7-oct-2026: guardar un evento ya NO abre ni cierra la tienda segun el
+        // horario, ni muestra la ventana de "ampliar". El horario quedo solo informativo.
       }
     }
     return !error;
@@ -1922,7 +1929,9 @@ async function chequearAperturaAutomaticaGlobal() {
       // Si el evento tiene carpas, el estado real de "abierta" vive por carpa, no a nivel
       // del evento general - dejamos que el bloque de carpas (mas abajo) sea la unica
       // fuente de verdad, para que Caja y la lista de eventos nunca queden en desacuerdo.
-      if (ev.horario_auto && !tieneCarpas) {
+      // Decision del 7-oct-2026: el horario quedo SOLO INFORMATIVO. Ya no abre ni cierra
+      // nada (ni el evento ni las carpas). Lo unico que abre o cierra es el boton de Caja.
+      if (false && ev.horario_auto && !tieneCarpas) {
         const debeEstarAbierto = verificarHorarioAuto(ev);
         // Decision del 5-oct-2026: el horario ya NO abre la Caja por su cuenta. La unica
         // forma de que empiecen a venderse pedidos en linea es que alguien toque "Abrir"
@@ -1958,7 +1967,7 @@ async function chequearAperturaAutomaticaGlobal() {
       // Carpas con horario propio: se evaluan independientemente del horario general
       // del evento, cada una con su propio estado abierta/cerrada guardado dentro del
       // arreglo de carpas.
-      if (tieneCarpas && ev.horario_auto) {
+      if (false && tieneCarpas && ev.horario_auto) { // apagado: ver decision del 7-oct-2026 arriba
         let carpasArray = ev.carpas;
         let huboCambio = false;
         let algunaSeAbrio = false;
@@ -2030,6 +2039,9 @@ async function chequearAperturaAutomaticaGlobal() {
 // Run auto schedule check every minute (y una vez de inmediato al cargar)
 async function chequearHorarioAutoPeriodicamente() {
   await chequearAperturaAutomaticaGlobal();
+  // Decision del 7-oct-2026: ya no existe la ventana "La tienda se cerro, deseas ampliar?".
+  // La tienda solo se cierra cuando alguien toca "Cerrar tienda" en Caja.
+  if (true) return;
   if (!cajaEventoSeleccionado || !cajaEventoSeleccionado.horario_auto) return;
   // Si la carpa actual tiene su propio horario, hay que revisar ESE, no el horario
   // general del evento - de lo contrario, un evento con horario general desactualizado
@@ -2432,10 +2444,119 @@ async function sugerirEventoPorUbicacion(activos, todos) {
   }
 }
 
+// ===================== ABRIR TIENDA (decision del 7-oct-2026) =====================
+// Al entrar a Caja sin evento, hay un solo letrero "ABRIR TIENDA". Al tocarlo se elige el
+// evento (ordenados por fecha: primero los de hoy) y la carpa, y la tienda queda abierta de
+// una vez. Si el evento elegido todavia no empieza (o ya termino), se avisa antes cuantos
+// dias faltan, porque lo mas probable es que se haya escogido el evento equivocado.
+let abrirTiendaAlElegir = false;
+
+function ponerEstadoAbrirTienda(txt) {
+  const el = document.getElementById('caja-abrir-estado');
+  if (el) el.textContent = txt || '';
+}
+
+// Cuantos dias faltan para que empiece el evento, contados en la zona horaria del evento:
+// 0 = hoy esta dentro de sus fechas, positivo = faltan dias, negativo = ya termino,
+// null = el evento no tiene fechas puestas.
+function diasParaEvento(ev) {
+  if (!ev || !ev.fecha_inicio) return null;
+  const { fecha: hoy } = obtenerAhoraEnZona(ev.zona_horaria);
+  const fin = ev.fecha_fin || ev.fecha_inicio;
+  const aDia = s => Math.round(new Date(s + 'T12:00:00').getTime() / 86400000);
+  if (hoy < ev.fecha_inicio) return aDia(ev.fecha_inicio) - aDia(hoy);
+  if (hoy > fin) return aDia(fin) - aDia(hoy);
+  return 0;
+}
+
+function fechaLargaEvento(fechaStr) {
+  try {
+    return new Intl.DateTimeFormat('es', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date(fechaStr + 'T12:00:00'));
+  } catch(e) { return fechaStr; }
+}
+
+function etiquetaCuandoEvento(ev) {
+  const d = diasParaEvento(ev);
+  if (d === null) return { texto: 'SIN FECHA', color: '#888' };
+  if (d === 0) return { texto: 'HOY', color: '#4CAF50' };
+  if (d === 1) return { texto: 'EMPIEZA MAÑANA · ' + fechaLargaEvento(ev.fecha_inicio), color: '#F5A623' };
+  if (d > 1) return { texto: 'FALTAN ' + d + ' DÍAS · ' + fechaLargaEvento(ev.fecha_inicio), color: '#F5A623' };
+  return { texto: 'YA TERMINÓ · ' + fechaLargaEvento(ev.fecha_fin || ev.fecha_inicio), color: '#ff6b6b' };
+}
+
+async function abrirSelectorEventoTienda() {
+  let activos = (eventosCache || []).filter(ev => esEventoActivo(ev));
+  if (!activos.length) {
+    // Puede que la lista todavia no haya terminado de cargar - la pedimos de nuevo antes
+    // de decir que no hay nada.
+    ponerEstadoAbrirTienda('Buscando eventos...');
+    try { eventosCache = await cargarEventosSupabase(); } catch(e) {}
+    activos = (eventosCache || []).filter(ev => esEventoActivo(ev));
+    ponerEstadoAbrirTienda(activos.length ? '' : 'No hay eventos activos. Crea uno en la pantalla Eventos.');
+  }
+  if (!activos.length) {
+    mostrarAviso('No hay eventos activos para abrir. Crea uno en la pantalla Eventos.');
+    return;
+  }
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch]));
+  // Orden: hoy primero, luego sin fecha, luego los que faltan (del mas cercano al mas lejano),
+  // y al final los que ya terminaron.
+  const peso = d => (d === null ? 0.5 : (d < 0 ? 100000 - d : d));
+  const lista = activos.slice().sort((x, y) => peso(diasParaEvento(x)) - peso(diasParaEvento(y)));
+  document.getElementById('tienda-evento-opciones').innerHTML = lista.map(ev => {
+    const et = etiquetaCuandoEvento(ev);
+    const yaAbierta = (ev.carpas && ev.carpas.length > 0) ? ev.carpas.some(c => c && c.tiendaAbierta) : !!ev.tienda_abierta;
+    const lugar = ev.ciudad_corta || (ev.city ? ev.city.split(',').slice(0,2).join(',') : '');
+    return `<button onclick="elegirEventoParaAbrir('${esc(String(ev.id))}')" style="width:100%;text-align:left;background:#242220;border:none;border-radius:0;padding:14px 16px;cursor:pointer">
+      <div style="color:${et.color};font-size:11px;font-weight:900;letter-spacing:0.5px">${esc(et.texto)}${yaAbierta ? ' · YA ESTÁ ABIERTA' : ''}</div>
+      <div style="color:#fff;font-size:16px;font-weight:900;margin-top:3px">${esc(ev.name)} [${esc(ev.codigo)}]</div>
+      ${lugar ? `<div style="color:var(--gray);font-size:11px;margin-top:2px">${esc(lugar)}</div>` : ''}
+    </button>`;
+  }).join('');
+  document.getElementById('tienda-evento-modal').classList.add('open');
+}
+
+function elegirEventoParaAbrir(idEvento) {
+  const ev = (eventosCache || []).find(e => String(e.id) === String(idEvento));
+  if (!ev) return;
+  document.getElementById('tienda-evento-modal').classList.remove('open');
+  const seguir = () => {
+    const idx = eventosCache.indexOf(ev);
+    const select = document.getElementById('caja-evento-select');
+    if (!select || idx < 0) return;
+    // El select escondido es lo que usa por dentro seleccionarEventoCaja() - nos aseguramos
+    // de que tenga esta opcion antes de marcarla.
+    if (!Array.from(select.options).some(o => o.value === String(idx))) {
+      const o = document.createElement('option');
+      o.value = String(idx); o.textContent = ev.name;
+      select.appendChild(o);
+    }
+    select.value = String(idx);
+    const banner = document.getElementById('caja-sugerencia-evento');
+    if (banner) banner.style.display = 'none';
+    abrirTiendaAlElegir = true;
+    seleccionarEventoCaja();
+  };
+  const d = diasParaEvento(ev);
+  if (d !== null && d > 0) {
+    mostrarConfirmacion(
+      `OJO: "${ev.name}" todavía no empieza.\n\nEmpieza el ${fechaLargaEvento(ev.fecha_inicio)} (${d === 1 ? 'falta 1 día' : 'faltan ' + d + ' días'}).\n\n¿Seguro que es el evento que vas a abrir HOY?`,
+      { textoSi: 'Sí, abrir este', textoNo: 'Elegir otro', onSi: seguir, onNo: abrirSelectorEventoTienda }
+    );
+  } else if (d !== null && d < 0) {
+    mostrarConfirmacion(
+      `OJO: "${ev.name}" ya terminó el ${fechaLargaEvento(ev.fecha_fin || ev.fecha_inicio)}.\n\n¿Seguro que es el evento que vas a abrir HOY?`,
+      { textoSi: 'Sí, abrir este', textoNo: 'Elegir otro', onSi: seguir, onNo: abrirSelectorEventoTienda }
+    );
+  } else {
+    seguir();
+  }
+}
+
 function confirmarSugerenciaEvento(idx) {
-  document.getElementById('caja-evento-select').value = idx;
-  seleccionarEventoCaja();
   document.getElementById('caja-sugerencia-evento').style.display = 'none';
+  const ev = eventosCache[idx];
+  if (ev) elegirEventoParaAbrir(ev.id);
 }
 
 // Si elige un evento manualmente y esta muy lejos de sus coordenadas, avisamos por si
@@ -2454,12 +2575,16 @@ async function verificarDistanciaEventoSeleccionado(ev) {
       {
         textoSi: '✓ Continuar en este evento',
         textoNo: '↩ Elegir otro evento',
-        onNo: () => {
+        onNo: async () => {
+          // Como ahora la tienda se abre al elegir el evento, si resulta que era el evento
+          // equivocado la cerramos antes de soltarlo - si no, quedaria abierta en linea.
+          if (tiendaAbierta) { try { await cerrarTiendaBtn(); } catch(e) {} }
           cajaEventoSeleccionado = null;
           const select = document.getElementById('caja-evento-select');
           if (select) select.value = '';
           document.getElementById('caja-evento-activo').style.display = 'none';
           document.getElementById('caja-productos-section').style.display = 'none';
+          document.getElementById('caja-evento-selector').style.display = 'block';
         }
       }
     );
@@ -2470,6 +2595,7 @@ async function cargarEventosEnCaja() {
   const select = document.getElementById('caja-evento-select');
   if (!select) return;
   select.innerHTML = '<option value="">Cargando eventos...</option>';
+  ponerEstadoAbrirTienda('Cargando eventos...');
   eventosCacheEsLocal = false;
   const todos = await cargarEventosSupabase();
   eventosCache = todos;
@@ -2495,6 +2621,7 @@ async function cargarEventosEnCaja() {
       return;
     }
     select.innerHTML = '<option value="">No hay eventos activos disponibles</option>';
+    ponerEstadoAbrirTienda('No hay eventos activos. Crea uno en la pantalla Eventos.');
     return;
   }
   if (eventosCacheEsLocal) {
@@ -2505,6 +2632,7 @@ async function cargarEventosEnCaja() {
       const idx = todos.indexOf(ev);
       return `<option value="${idx}">${ev.name} [${ev.codigo}]${ev.tienda_abierta ? ' \u2014 Abierta' : ''}</option>`;
     }).join('');
+  ponerEstadoAbrirTienda(activos.length + (activos.length === 1 ? ' evento disponible' : ' eventos disponibles'));
   // If there is a saved selection, restore it
   if (cajaEventoSeleccionado) {
     const idx = todos.findIndex(e => e.id === cajaEventoSeleccionado.id);
@@ -2553,16 +2681,27 @@ function mostrarSelectorCarpa(carpas) {
   document.getElementById('carpa-modal').classList.add('open');
 }
 
+// Decision del 7-oct-2026: si el evento tiene carpas, CADA carpa tiene siempre su propio
+// interruptor de abierta/cerrada, tenga o no horario propio. Es exactamente lo mismo que
+// mira la app del cliente (ahi, con carpas, siempre decide la carpa). Antes, Admin solo
+// guardaba el interruptor en la carpa si esa carpa tenia horario propio - si no, lo
+// guardaba en el evento general, y el cliente (que miraba la carpa) la veia cerrada.
+function carpaDeEvento(ev, nombre) {
+  if (!ev || !ev.carpas || !ev.carpas.length) return null;
+  const c = ev.carpas.find(x => (typeof x === 'string' ? x : (x && x.nombre)) === nombre);
+  if (!c) return null;
+  return typeof c === 'string' ? { nombre: c } : c;
+}
+
 function continuarConCarpaCaja(nombreCarpa) {
   document.getElementById('carpa-modal').classList.remove('open');
   const ev = cajaEventoSeleccionado;
   if (!ev) return;
   currentTent = nombreCarpa;
 
-  const carpaActual = (ev.carpas || []).find(c => c.nombre === currentTent);
-  const usaCarpa = carpaActual && carpaActual.horariosDias && carpaActual.horariosDias.length;
-  tiendaAbierta = usaCarpa ? !!carpaActual.tiendaAbierta : !!ev.tienda_abierta;
-  cerradaPorAdmin = usaCarpa ? !!carpaActual.cerradaPorAdmin : false;
+  const carpaActual = carpaDeEvento(ev, currentTent);
+  tiendaAbierta = carpaActual ? !!carpaActual.tiendaAbierta : !!ev.tienda_abierta;
+  cerradaPorAdmin = false;
 
   const cambiandoDeEvento = (currentEventId && currentEventId !== ev.id) || (orders.length && orders[0] && orders[0].tent !== nombreCarpa);
   if (cambiandoDeEvento || orders.length === 0) {
@@ -2576,17 +2715,12 @@ function continuarConCarpaCaja(nombreCarpa) {
   // que esta tableta entrara), para que el tablero no empiece "en blanco".
   loadOrdersFromSupabase();
   verificarDistanciaEventoSeleccionado(ev);
-  // Revisamos el horario automatico de inmediato (no esperar hasta el proximo chequeo
-  // cada 60 segundos), para que si ya estamos dentro del horario, abra la tienda al toque.
-  // Usa el horario propio de la carpa si lo tiene, si no el del evento en general.
-  const horarioParaChequeo = usaCarpa
-    ? { horario_auto: ev.horario_auto, horarios_dias: carpaActual.horariosDias, zona_horaria: ev.zona_horaria }
-    : ev;
-  if (horarioParaChequeo.horario_auto) {
-    const debeEstarAbierto = verificarHorarioAuto(horarioParaChequeo);
-    if (debeEstarAbierto === true && !tiendaAbierta && !cerradaPorAdmin) {
-      abrirTiendaBtn('horario');
-    }
+  // Decision del 7-oct-2026: el horario ya no abre nada, tampoco al entrar a Caja. La
+  // tienda se abre aqui solo si se llego por el letrero "ABRIR TIENDA" (ahi elegir el
+  // evento y la carpa ES la orden de abrir).
+  if (abrirTiendaAlElegir) {
+    abrirTiendaAlElegir = false;
+    if (!tiendaAbierta) abrirTiendaBtn('admin');
   }
 }
 
@@ -2604,7 +2738,9 @@ function mostrarEventoActivoEnCaja(ev) {
   const carpaActual = (ev.carpas || []).find(c => c.nombre === currentTent);
   const usaCarpa = carpaActual && carpaActual.horariosDias && carpaActual.horariosDias.length;
   const horariosDiasEfectivos = usaCarpa ? carpaActual.horariosDias : ev.horarios_dias;
-  const tiendaAbiertaEfectiva = usaCarpa ? !!carpaActual.tiendaAbierta : ev.tienda_abierta;
+  const carpaEstado = carpaDeEvento(ev, currentTent);
+  const tiendaAbiertaEfectiva = carpaEstado ? !!carpaEstado.tiendaAbierta : !!ev.tienda_abierta;
+  tiendaAbierta = tiendaAbiertaEfectiva; // el boton y la variable siempre dicen lo mismo
 
   const { fecha: hoy } = obtenerAhoraEnZona(ev.zona_horaria);
   const diaHoy = horariosDiasEfectivos && horariosDiasEfectivos.find(d => d.fecha === hoy);
@@ -2614,12 +2750,12 @@ function mostrarEventoActivoEnCaja(ev) {
     const apFmt = formatHora24a12(diaHoy.apertura);
     const ciFmt = formatHora24a12(diaHoy.cierre);
     document.getElementById('caja-horario-display').textContent =
-      'Apertura: ' + apFmt.hora + ' ' + apFmt.ampm + '   →   Cierre: ' + ciFmt.hora + ' ' + ciFmt.ampm +
+      'Horario del evento (solo informativo): ' + apFmt.hora + ' ' + apFmt.ampm + ' a ' + ciFmt.hora + ' ' + ciFmt.ampm +
       (usaCarpa ? ' (' + currentTent + ')' : '');
     cajaEventoSeleccionado._horaApertura = diaHoy.apertura;
     cajaEventoSeleccionado._horaCierre = diaHoy.cierre;
     cajaEventoSeleccionado._horaCierreOriginal = diaHoy.cierre;
-    document.getElementById('caja-btn-ampliar-visible').style.display = 'inline-block';
+    document.getElementById('caja-btn-ampliar-visible').style.display = 'none'; // ya no hay "ampliar": decision del 7-oct-2026
   } else {
     wrap.style.display = 'none';
     document.getElementById('caja-btn-ampliar-visible').style.display = 'none';
@@ -2721,54 +2857,32 @@ function ajustarHorario(tipo, minutos) {
 function actualizarBotonTiendaCaja(abierta) {
   const estadoBtn = document.getElementById('caja-estado-tienda-btn');
   const accionBtn = document.getElementById('caja-accion-btn');
-  const motivoEl = document.getElementById('caja-estado-motivo');
   if (!estadoBtn || !accionBtn) return;
-
-  const motivos = {
-    horario: abierta ? 'Abierta por horario' : 'Cerrada por horario',
-    admin: abierta ? 'Abierta por administrador' : 'Cerrada por administrador',
-    ampliacion: 'Abierta por ampliacion de horario',
-    vencimiento: 'Cerrada por vencimiento de ampliacion'
-  };
-  const motivo = motivos[razonTienda] || '';
-
+  // Decision del 7-oct-2026: solo hay dos estados, sin motivos de horario ni ampliacion.
+  // Cerrada NO significa que Caja deje de funcionar: se sigue vendiendo en persona y se
+  // siguen cobrando y entregando los pedidos que ya estaban hechos.
+  estadoBtn.style.cursor = 'default';
+  estadoBtn.onclick = null;
   if (abierta) {
-    estadoBtn.innerHTML = '<div>LA TIENDA</div><div>ESTA ABIERTA</div><div id="caja-estado-motivo" style="font-size:9px;font-weight:400;margin-top:4px;opacity:0.7">' + motivo + '</div>';
+    estadoBtn.innerHTML = '<div>LA TIENDA</div><div>ESTÁ ABIERTA</div><div id="caja-estado-motivo" style="font-size:9px;font-weight:400;margin-top:4px;opacity:0.7">Recibiendo pedidos en línea</div>';
     estadoBtn.style.background = '#1a3a00';
     estadoBtn.style.color = '#4CAF50';
     estadoBtn.style.border = '2px solid #4CAF50';
-    estadoBtn.style.cursor = 'default';
-    estadoBtn.onclick = null;
     accionBtn.textContent = 'Cerrar tienda';
     accionBtn.style.background = '#3a1a1a';
     accionBtn.style.color = '#ff6b6b';
     accionBtn.style.border = '1px solid #ff4444';
     accionBtn.onclick = solicitarCierreTienda;
-  } else if (cerradaPorAdmin) {
-    estadoBtn.innerHTML = '<div>LA TIENDA</div><div>ESTA CERRADA</div><div id="caja-estado-motivo" style="font-size:9px;font-weight:400;margin-top:4px;opacity:0.7">Cerrada por administrador</div>';
-    estadoBtn.style.background = '#3a0000';
-    estadoBtn.style.color = '#ff4444';
-    estadoBtn.style.border = '2px solid #ff4444';
-    estadoBtn.style.cursor = 'default';
-    estadoBtn.onclick = null;
-    accionBtn.textContent = 'Abrir tienda';
-    accionBtn.style.background = 'var(--orange)';
-    accionBtn.style.color = '#000';
-    accionBtn.style.border = 'none';
-    accionBtn.onclick = abrirTiendaBtn;
   } else {
-    const motivoCierre = razonTienda === 'vencimiento' ? 'Vencimiento de ampliacion' : 'Cerrada por horario';
-    estadoBtn.innerHTML = '<div>LA TIENDA</div><div>ESTA CERRADA</div><div id="caja-estado-motivo" style="font-size:9px;font-weight:400;margin-top:4px;opacity:0.7">' + motivoCierre + '</div>';
+    estadoBtn.innerHTML = '<div>LA TIENDA</div><div>ESTÁ CERRADA</div><div id="caja-estado-motivo" style="font-size:9px;font-weight:400;margin-top:4px;opacity:0.7">Solo venta en caja</div>';
     estadoBtn.style.background = '#2a2a2a';
     estadoBtn.style.color = '#888';
     estadoBtn.style.border = '2px solid #444';
-    estadoBtn.style.cursor = 'default';
-    estadoBtn.onclick = null;
     accionBtn.textContent = 'Abrir tienda';
     accionBtn.style.background = 'var(--orange)';
     accionBtn.style.color = '#000';
     accionBtn.style.border = 'none';
-    accionBtn.onclick = abrirTiendaBtn;
+    accionBtn.onclick = () => abrirTiendaBtn('admin');
   }
 }
 
@@ -2777,20 +2891,19 @@ function toggleTiendaAccion() {
   else abrirTiendaBtn();
 }
 
-// Si la carpa actual tiene horario propio, su estado abierta/cerrada vive dentro del
-// arreglo de carpas del evento (no en el campo del evento en general).
+// Si el evento tiene carpas, el estado abierta/cerrada vive dentro del arreglo de carpas
+// (siempre, tenga o no horario propio la carpa - ver carpaDeEvento).
 function getCarpaActual() {
-  if (!cajaEventoSeleccionado) return null;
-  const c = (cajaEventoSeleccionado.carpas || []).find(x => x.nombre === currentTent);
-  return (c && c.horariosDias && c.horariosDias.length) ? c : null;
+  return carpaDeEvento(cajaEventoSeleccionado, currentTent);
 }
 
 async function actualizarEstadoTiendaCarpaOEvento(abierta, porAdmin) {
   const carpa = getCarpaActual();
   if (carpa) {
-    const nuevasCarpasLocal = cajaEventoSeleccionado.carpas.map(c =>
-      c.nombre === currentTent ? { ...c, tiendaAbierta: abierta, cerradaPorAdmin: !!porAdmin } : c
-    );
+    const nuevasCarpasLocal = cajaEventoSeleccionado.carpas.map(c0 => {
+      const c = typeof c0 === 'string' ? { nombre: c0 } : c0;
+      return c.nombre === currentTent ? { ...c, tiendaAbierta: abierta, cerradaPorAdmin: !!porAdmin } : c;
+    });
     cajaEventoSeleccionado.carpas = nuevasCarpasLocal; // esto si es solo para esta pantalla, se ve bien de inmediato
     if (isOnline) {
       try {
@@ -2802,9 +2915,10 @@ async function actualizarEstadoTiendaCarpaOEvento(abierta, porAdmin) {
         // fresca, nunca pisamos la lista de dias completa con la copia vieja.
         const { data: eventoFresco } = await sb.from('events').select('carpas').eq('id', cajaEventoSeleccionado.id).single();
         const carpasFrescas = (eventoFresco && eventoFresco.carpas) ? eventoFresco.carpas : cajaEventoSeleccionado.carpas;
-        const nuevasCarpas = carpasFrescas.map(c =>
-          c.nombre === currentTent ? { ...c, tiendaAbierta: abierta, cerradaPorAdmin: !!porAdmin } : c
-        );
+        const nuevasCarpas = carpasFrescas.map(c0 => {
+          const c = typeof c0 === 'string' ? { nombre: c0 } : c0;
+          return c.nombre === currentTent ? { ...c, tiendaAbierta: abierta, cerradaPorAdmin: !!porAdmin } : c;
+        });
         const payload = { carpas: nuevasCarpas };
         // El evento en general tiene que estar "en linea" para que CUALQUIER carpa suya
         // sea alcanzable por clientes online - si no, aunque la carpa este abierta por
@@ -2885,14 +2999,24 @@ function ampliarTiendaCustom() {
   ampliarTienda(min);
 }
 
+// Decision del 7-oct-2026: cerrar ya no pide clave ni ofrece "ampliar". Solo confirma, y
+// de paso recuerda cuantos pedidos siguen pendientes para que nadie los olvide: cerrar
+// SOLO apaga los pedidos nuevos en linea; Caja sigue vendiendo en persona, cobrando los
+// que estan por pagar y entregando los que ya estan en el tablero.
 function solicitarCierreTienda() {
-  mostrarPrompt('Ingresa la clave de administrador para cerrar la tienda:', (clave) => {
-    if (clave === ADMIN_PASS) {
-      cerrarTiendaBtn();
-    } else if (clave !== '') {
-      mostrarAviso('Clave incorrecta. No se pudo cerrar la tienda.');
-    }
-  });
+  const vivos = (orders || []).filter(o => o && o.state !== 'delivered' && o.state !== 'cancelled');
+  const listos = vivos.filter(o => o.state === 'ready').length;
+  const enPreparacion = vivos.length - listos;
+  const sinPagar = (pedidosPendientesPago || []).length;
+  let msg = '¿Cerrar la tienda?\n\nYa no entran pedidos nuevos en línea. Caja sigue funcionando para vender en persona.';
+  if (enPreparacion || listos || sinPagar) {
+    msg += '\n\nPedidos que siguen pendientes:';
+    if (enPreparacion) msg += '\n• En preparación: ' + enPreparacion;
+    if (listos) msg += '\n• Listos sin entregar: ' + listos;
+    if (sinPagar) msg += '\n• Sin pagar: ' + sinPagar;
+    msg += '\n\nEsos NO se cancelan: se pueden terminar, cobrar y entregar normal.';
+  }
+  mostrarConfirmacion(msg, { textoSi: 'Sí, cerrar', textoNo: 'Cancelar', onSi: () => { cerrarTiendaBtn(); } });
 }
 
 // La "despedida" es lo que le permite al cliente distinguir "Caja se cerro a proposito"
@@ -2917,6 +3041,7 @@ async function cerrarTiendaBtn() {
 }
 
 function solicitarCambioEvento() {
+  if (tiendaAbierta) { mostrarAviso('Primero cierra la tienda. Después sí puedes cambiar de evento.'); return; }
   mostrarPrompt('Clave de administrador para cambiar evento:', (clave) => {
     if (clave === ADMIN_PASS) {
       cambiarEventoCaja();
@@ -3010,6 +3135,8 @@ function limpiarCarrito() {
 }
 
 function limpiarEvento() {
+  // Salir del evento con la tienda abierta la dejaba abierta en linea sin nadie atendiendo.
+  if (tiendaAbierta) { mostrarAviso('Primero cierra la tienda. Después sí puedes salir del evento.'); return; }
   mostrarPrompt('Clave de administrador para quitar el evento:', (clave) => {
     if (clave !== ADMIN_PASS) { if (clave !== '') mostrarAviso('Clave incorrecta.'); return; }
     cajaCart = [];
@@ -7126,7 +7253,7 @@ async function continuarActivarEvento(nombre, codigo, fechaInicio, fechaFin, hor
   // guardado. Sin esto, un evento reactivado (por ejemplo, uno que estaba archivado con
   // tienda_abierta=true de cuando se archivo) se quedaba mostrando "abierta" hasta el
   // proximo chequeo automatico, en vez de reflejar el horario nuevo de inmediato.
-  if (horarioAuto) {
+  if (false && horarioAuto) { // apagado: decision del 7-oct-2026, el horario es solo informativo
     const evTemp = { horario_auto: horarioAuto, horarios_dias: horariosDias, zona_horaria: zonaHoraria };
     const debeEstarAbiertoAhora = verificarHorarioAuto(evTemp);
     if (debeEstarAbiertoAhora !== null) eventoData.tiendaAbierta = !!debeEstarAbiertoAhora;
@@ -7138,7 +7265,7 @@ async function continuarActivarEvento(nombre, codigo, fechaInicio, fechaFin, hor
   // y nunca la reabre solo. Al GUARDAR un horario nuevo desde este formulario, entendemos
   // que la intencion es que ese horario mande de una vez, asi que limpiamos el cierre
   // manual viejo y dejamos la carpa en el estado que le corresponda ahora mismo.
-  if (horarioAuto && eventoData.carpas && eventoData.carpas.length) {
+  if (false && horarioAuto && eventoData.carpas && eventoData.carpas.length) { // apagado: decision del 7-oct-2026
     eventoData.carpas = eventoData.carpas.map(c => {
       if (!c.horariosDias || !c.horariosDias.length) return c;
       const carpaComoEvento = { horario_auto: horarioAuto, horarios_dias: c.horariosDias, zona_horaria: zonaHoraria };
@@ -7720,6 +7847,6 @@ document.addEventListener('keypress', e => {
   <div id="mapa-coordenadas" style="padding:10px 16px;background:#111;color:#4CAF50;font-size:11px;text-align:center">Toca el mapa para seleccionar un punto</div>
 </div>
 
-<div id="version-tag-admin" style="position:fixed;left:0;bottom:0;background:#ff0066;color:#fff;font-size:10px;font-weight:900;padding:3px 8px;z-index:999998;letter-spacing:0.4px">ADMIN v31-oct-qrfix1</div>
+<div id="version-tag-admin" style="position:fixed;left:0;bottom:0;background:#ff0066;color:#fff;font-size:10px;font-weight:900;padding:3px 8px;z-index:999998;letter-spacing:0.4px">ADMIN — 7 oct, 7:49 a.m. — caja1</div>
 </body>
 </html>
