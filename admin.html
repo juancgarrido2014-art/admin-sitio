@@ -510,7 +510,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
            un solo letrero grande "ABRIR TIENDA": se elige evento y carpa, y queda abierta. El
            select viejo se deja escondido porque el resto del programa lo sigue usando por dentro. -->
       <select id="caja-evento-select" onchange="seleccionarEventoCaja()" style="display:none"><option value="">Selecciona un evento...</option></select>
-      <div style="color:var(--gray);font-size:12px;text-align:center;margin-bottom:12px">La tienda está cerrada. Elige el evento y la carpa para empezar.</div>
+      <div style="color:var(--gray);font-size:12px;text-align:center;margin-bottom:12px">La tienda está cerrada. Elige el evento y la carpa para empezar. Si no hay evento programado, adentro está la Venta rápida.</div>
       <button onclick="abrirSelectorEventoTienda()" style="width:100%;background:var(--orange);color:#000;border:none;border-radius:0;padding:28px 12px;font-size:24px;font-weight:900;letter-spacing:1px;cursor:pointer">ABRIR TIENDA</button>
       <div id="caja-abrir-estado" style="color:var(--gray);font-size:11px;text-align:center;margin-top:10px;min-height:14px"></div>
     </div>
@@ -1079,6 +1079,11 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
     <div style="color:var(--orange);font-size:16px;font-weight:800;margin-bottom:4px">¿Qué evento vas a abrir?</div>
     <div style="color:var(--gray);font-size:12px;margin-bottom:14px">Primero salen los de hoy. Los que todavía no empiezan están más abajo, con los días que faltan.</div>
     <div id="tienda-evento-opciones" style="display:flex;flex-direction:column;gap:1px;background:#000"></div>
+    <button onclick="iniciarVentaRapida()" style="width:100%;text-align:left;background:#16212e;border:none;border-left:4px solid #4a9eff;border-radius:0;padding:14px 16px;cursor:pointer;margin-top:12px">
+      <div style="color:#4a9eff;font-size:11px;font-weight:900;letter-spacing:0.5px">SIN EVENTO PROGRAMADO</div>
+      <div style="color:#fff;font-size:16px;font-weight:900;margin-top:3px">Venta rápida</div>
+      <div style="color:var(--gray);font-size:11px;margin-top:2px">Crea un evento de hoy con la ubicación de esta tableta y abre la tienda.</div>
+    </button>
     <button onclick="document.getElementById('tienda-evento-modal').classList.remove('open')" style="width:100%;background:#2a2a2a;color:#fff;border:none;border-radius:0;padding:12px;font-size:13px;font-weight:700;cursor:pointer;margin-top:12px">Cancelar</button>
   </div>
 </div>
@@ -2492,10 +2497,13 @@ async function abrirSelectorEventoTienda() {
     ponerEstadoAbrirTienda('Buscando eventos...');
     try { eventosCache = await cargarEventosSupabase(); } catch(e) {}
     activos = (eventosCache || []).filter(ev => esEventoActivo(ev));
-    ponerEstadoAbrirTienda(activos.length ? '' : 'No hay eventos activos. Crea uno en la pantalla Eventos.');
+    ponerEstadoAbrirTienda(activos.length ? '' : 'No hay eventos programados. Puedes usar Venta rápida.');
   }
   if (!activos.length) {
-    mostrarAviso('No hay eventos activos para abrir. Crea uno en la pantalla Eventos.');
+    // Decision del 9-oct-2026: sin eventos ya no se queda bloqueado - se muestra la ventana
+    // igual, con la opcion de Venta rapida.
+    document.getElementById('tienda-evento-opciones').innerHTML = '<div style="background:#242220;color:var(--gray);font-size:13px;padding:14px 16px">No hay eventos programados para abrir.</div>';
+    document.getElementById('tienda-evento-modal').classList.add('open');
     return;
   }
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch]));
@@ -2514,6 +2522,231 @@ async function abrirSelectorEventoTienda() {
     </button>`;
   }).join('');
   document.getElementById('tienda-evento-modal').classList.add('open');
+}
+
+// ===================== VENTA RAPIDA (decision del 9-oct-2026) =====================
+// Para cuando hay que vender y no hay ningun evento programado (por ejemplo, se olvido
+// crearlo). Con un toque se arma un evento de hoy en el punto donde esta la tableta (GPS)
+// y se abre la tienda. Para la app del cliente es un evento normal: quien este cerca lo
+// detecta igual que cualquier otro. Queda guardado en Eventos para ponerle nombre despues.
+const VR_CODIGO = 'VR';
+const VR_CARPA = 'Única';
+let vrMapa = null, vrMarcador = null, vrPunto = null;
+
+function esVentaRapida(ev) {
+  return !!ev && ev.codigo === VR_CODIGO && /^Venta r[aá]pida/i.test(ev.name || '');
+}
+
+function eventoTieneTiendaAbierta(ev) {
+  return (ev.carpas && ev.carpas.length > 0) ? ev.carpas.some(c => c && c.tiendaAbierta) : !!ev.tienda_abierta;
+}
+
+// Distancia de un punto al evento: la menor entre su punto general y el de cada carpa que
+// tenga ubicacion propia (lo mismo que mira la app del cliente para saber si esta "cerca").
+function distanciaAEventoAdmin(ubic, ev) {
+  const puntos = [];
+  if (ev.lat != null && ev.lon != null) puntos.push([ev.lat, ev.lon]);
+  (ev.carpas || []).forEach(c => { if (c && c.lat != null && c.lon != null) puntos.push([c.lat, c.lon]); });
+  let min = Infinity;
+  puntos.forEach(p => {
+    const d = distanciaMetrosAdmin(ubic.lat, ubic.lon, parseFloat(p[0]), parseFloat(p[1]));
+    if (d < min) min = d;
+  });
+  return min;
+}
+
+function iniciarVentaRapida() {
+  document.getElementById('tienda-evento-modal').classList.remove('open');
+  if (!isOnline) {
+    mostrarAviso('Para crear una venta rápida necesitas internet en este momento.');
+    return;
+  }
+  // Con clave, para que no se creen eventos por error.
+  mostrarPrompt('Clave de administrador para crear una venta rápida:', async (clave) => {
+    if (clave !== ADMIN_PASS) { if (clave !== '') mostrarAviso('Clave incorrecta.'); return; }
+    ponerEstadoAbrirTienda('Buscando la ubicación de esta tableta...');
+    ubicacionCajaCache = null; // pedimos la ubicacion de AHORA, no una guardada de antes
+    const ubic = await obtenerUbicacionCaja();
+    if (!ubic) {
+      ponerEstadoAbrirTienda('');
+      mostrarConfirmacion(
+        'No se pudo leer la ubicación de esta tableta (puede que el permiso de ubicación esté apagado).\n\n¿Quieres marcar en el mapa dónde estás?',
+        { textoSi: 'Marcar en el mapa', textoNo: 'Cancelar', onSi: abrirMapaVentaRapida }
+      );
+      return;
+    }
+    continuarVentaRapida(ubic);
+  });
+}
+
+async function continuarVentaRapida(ubic) {
+  ponerEstadoAbrirTienda('Revisando si ya hay un evento en este lugar...');
+  let todos = eventosCache || [];
+  try { todos = await cargarEventosSupabase(); eventosCache = todos; } catch(e) {}
+  // Eventos activos que tienen este punto DENTRO de su radio. Si creamos otro encima, al
+  // cliente le salen los dos y tiene que escoger - por eso primero se revisa.
+  const cercanos = (todos || []).filter(ev => esEventoActivo(ev))
+    .map(ev => ({ ev, d: distanciaAEventoAdmin(ubic, ev) }))
+    .filter(x => x.d <= (x.ev.radio_metros || 1000))
+    .sort((x, y) => x.d - y.d);
+
+  // Si ya hay una venta rapida de hoy aqui (o una de ayer que sigue abierta), se usa esa
+  // misma en vez de crear otra.
+  const rapida = cercanos.find(x => esVentaRapida(x.ev) &&
+    (x.ev.fecha_inicio === obtenerAhoraEnZona(x.ev.zona_horaria).fecha || eventoTieneTiendaAbierta(x.ev)));
+  if (rapida) {
+    ponerEstadoAbrirTienda('');
+    mostrarAviso('Ya había una venta rápida en este lugar. Se abre esa misma.', 5000);
+    elegirEventoParaAbrir(rapida.ev.id);
+    return;
+  }
+
+  const programado = cercanos.find(x => !esVentaRapida(x.ev));
+  if (programado) {
+    ponerEstadoAbrirTienda('');
+    const et = etiquetaCuandoEvento(programado.ev);
+    mostrarConfirmacion(
+      `Ya hay un evento programado en este mismo lugar:\n\n"${programado.ev.name}"\n${et.texto}\n\nSi creas una venta rápida aquí, al cliente le aparecen los dos y tiene que escoger.\n\n¿Qué quieres hacer?`,
+      {
+        textoSi: 'Abrir ese evento',
+        textoNo: 'Crear venta rápida',
+        onSi: () => elegirEventoParaAbrir(programado.ev.id),
+        onNo: () => crearVentaRapida(ubic, cercanos)
+      }
+    );
+    return;
+  }
+
+  crearVentaRapida(ubic, cercanos);
+}
+
+async function crearVentaRapida(ubic, cercanos) {
+  ponerEstadoAbrirTienda('Creando la venta rápida...');
+  // Direccion, ciudad y zona horaria del punto. Si esta consulta falla o se demora, no
+  // importa: se sigue con lo que se tenga (no es necesaria para vender).
+  let direccion = 'Ubicación por GPS', ciudad = null, zona = null;
+  try {
+    const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    const temporizador = setTimeout(() => { try { if (ctrl) ctrl.abort(); } catch(e) {} }, 4000);
+    const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${ubic.lat}&lon=${ubic.lon}&zoom=18&addressdetails=1&accept-language=es`;
+    const res = await fetch(url, { headers: { 'Accept-Language': 'es' }, signal: ctrl ? ctrl.signal : undefined });
+    clearTimeout(temporizador);
+    const data = await res.json();
+    if (data && data.display_name) direccion = data.display_name;
+    ciudad = detectarCiudad(data && data.address);
+    zona = detectarZonaHoraria(data && data.address);
+  } catch(e) {}
+  // Si no se pudo saber la zona por el lugar, usamos la de la tableta: esta ahi mismo.
+  if (!zona) { try { zona = Intl.DateTimeFormat().resolvedOptions().timeZone; } catch(e) {} }
+  if (!zona) zona = 'America/New_York';
+
+  const { fecha: hoy, minutosDelDia } = obtenerAhoraEnZona(zona);
+  const dManana = new Date(hoy + 'T12:00:00');
+  dManana.setDate(dManana.getDate() + 1);
+  // La fecha de fin es MANANA a proposito: asi, si la venta se pasa de la medianoche, el
+  // evento no "se vence" con la tienda todavia abierta.
+  const manana = dManana.getFullYear() + '-' + String(dManana.getMonth() + 1).padStart(2, '0') + '-' + String(dManana.getDate()).padStart(2, '0');
+  let etiquetaDia = hoy;
+  try { etiquetaDia = new Intl.DateTimeFormat('es', { day: 'numeric', month: 'short' }).format(new Date(hoy + 'T12:00:00')).replace('.', ''); } catch(e) {}
+  const horaAhora = String(Math.floor(minutosDelDia / 60)).padStart(2, '0') + ':' + String(minutosDelDia % 60).padStart(2, '0');
+
+  // Ventas rapidas de dias anteriores que quedaron aqui mismo y ya estan cerradas: se
+  // archivan, para que el cliente no vea dos eventos en el mismo punto.
+  for (const x of (cercanos || [])) {
+    if (!esVentaRapida(x.ev) || x.ev.fecha_inicio === hoy || eventoTieneTiendaAbierta(x.ev)) continue;
+    try { await sb.from('events').update({ estado: 'archivado' }).eq('id', x.ev.id); x.ev.estado = 'archivado'; } catch(e) {}
+  }
+
+  const creado = await crearEventoSupabase({
+    nombre: 'Venta rápida ' + etiquetaDia,
+    codigo: VR_CODIGO,
+    carpa: VR_CARPA,
+    carpas: [{ nombre: VR_CARPA }],
+    ubicacion: direccion,
+    lat: ubic.lat,
+    lon: ubic.lon,
+    fechaInicio: hoy,
+    fechaFin: manana,
+    // El horario es solo informativo (no abre ni cierra nada). Se deja el dia de hoy puesto
+    // para que, si despues se edita el evento en la pantalla Eventos, no se quede sin fecha.
+    horariosDias: [{ fecha: hoy, apertura: horaAhora < '23:59' ? horaAhora : '23:58', cierre: '23:59', automatico: false }],
+    horarioAuto: false,
+    precios: {},
+    radioMetros: 1000,
+    zonaHoraria: zona,
+    formaPago: 'propio',
+    ciudadCorta: ciudad,
+    tiendaAbierta: false
+  });
+  ponerEstadoAbrirTienda('');
+  if (!creado || !creado.id) {
+    mostrarAviso('No se pudo crear la venta rápida. Revisa el internet e intenta de nuevo.');
+    return;
+  }
+  eventosCache = [creado].concat((eventosCache || []).filter(e => e.id !== creado.id));
+  try { localStorage.setItem('ga_eventos_cache', JSON.stringify(eventosCache)); } catch(e) {}
+  if (typeof registrarEventoTiempoReal === 'function') registrarEventoTiempoReal('⚡ Venta rápida creada: ' + creado.name);
+  // De aqui en adelante es igual que abrir cualquier evento: elige la carpa unica y abre.
+  elegirEventoParaAbrir(creado.id);
+}
+
+// Respaldo por si la tableta no da su ubicacion: marcar el punto a mano en un mapa propio
+// (aparte del mapa del editor de eventos, para no enredar el formulario de Eventos).
+function abrirMapaVentaRapida() {
+  const modal = document.getElementById('vr-mapa-modal');
+  if (!modal) return;
+  if (typeof L === 'undefined') {
+    mostrarAviso('El mapa no ha terminado de cargar todavía. Espera unos segundos e intenta de nuevo.');
+    return;
+  }
+  vrPunto = null;
+  document.getElementById('vr-mapa-texto').textContent = 'Mueve el mapa hasta donde estás y toca el punto exacto';
+  modal.style.display = 'flex';
+  setTimeout(() => {
+    try {
+      // Arrancamos el mapa cerca de algo conocido (el ultimo evento donde trabajo esta
+      // tableta, o cualquier evento con ubicacion) para no tener que buscar desde lejos.
+      let centro = [25.7617, -80.1918], zoom = 10;
+      const ultimo = leerUltimoEventoCaja();
+      const conocido = (ultimo && ultimo.evento && ultimo.evento.lat != null && ultimo.evento.lon != null)
+        ? ultimo.evento
+        : (eventosCache || []).find(e => e.lat != null && e.lon != null);
+      if (conocido) { centro = [parseFloat(conocido.lat), parseFloat(conocido.lon)]; zoom = 13; }
+      if (!vrMapa) {
+        vrMapa = L.map('vr-mapa-leaflet').setView(centro, zoom);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?key=cb1_3knj_1_755129b42902b05a3fb70d56', {
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>, &copy; <a href="https://carto.com/attributions">CARTO</a>',
+          subdomains: 'abcd',
+          maxZoom: 20
+        }).addTo(vrMapa);
+        vrMapa.on('click', function(e) {
+          vrPunto = { lat: e.latlng.lat, lon: e.latlng.lng };
+          if (vrMarcador) vrMarcador.setLatLng(e.latlng);
+          else vrMarcador = L.marker(e.latlng, { icon: iconoMarcadorRojo() }).addTo(vrMapa);
+          document.getElementById('vr-mapa-texto').textContent = 'Punto marcado. Toca "Confirmar" para crear la venta rápida aquí.';
+        });
+      } else {
+        if (vrMarcador) { vrMapa.removeLayer(vrMarcador); vrMarcador = null; }
+        vrMapa.setView(centro, zoom);
+        vrMapa.invalidateSize();
+      }
+      // Segunda pasada por si la ventana aun no tenia su tamano final en la primera
+      setTimeout(() => { try { vrMapa.invalidateSize(); } catch(e) {} }, 350);
+    } catch(e) {
+      modal.style.display = 'none';
+      mostrarAviso('No se pudo abrir el mapa: ' + (e.message || e));
+    }
+  }, 100);
+}
+
+function cerrarMapaVentaRapida() {
+  document.getElementById('vr-mapa-modal').style.display = 'none';
+}
+
+function confirmarMapaVentaRapida() {
+  if (!vrPunto) { mostrarAviso('Primero toca el mapa para marcar dónde estás.'); return; }
+  cerrarMapaVentaRapida();
+  continuarVentaRapida({ lat: vrPunto.lat, lon: vrPunto.lon });
 }
 
 function elegirEventoParaAbrir(idEvento) {
@@ -2621,7 +2854,7 @@ async function cargarEventosEnCaja() {
       return;
     }
     select.innerHTML = '<option value="">No hay eventos activos disponibles</option>';
-    ponerEstadoAbrirTienda('No hay eventos activos. Crea uno en la pantalla Eventos.');
+    ponerEstadoAbrirTienda('No hay eventos programados. Toca ABRIR TIENDA para usar Venta rápida.');
     return;
   }
   if (eventosCacheEsLocal) {
@@ -7831,6 +8064,21 @@ document.addEventListener('keypress', e => {
 <script src="https://cdn.jsdelivr.net/npm/davidshimjs-qrcodejs@0.0.2/qrcode.min.js"></script>
 
 <!-- Modal del mapa -->
+<div id="vr-mapa-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.9);z-index:99999;flex-direction:column">
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:#111">
+    <div>
+      <div style="color:#fff;font-size:14px;font-weight:800">¿Dónde estás vendiendo?</div>
+      <div style="color:#888;font-size:11px">Venta rápida: marca el punto de la carpa</div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button onclick="confirmarMapaVentaRapida()" style="background:#4CAF50;color:#000;border:none;border-radius:0;padding:10px 16px;font-size:13px;font-weight:800;cursor:pointer">✓ Confirmar</button>
+      <button onclick="cerrarMapaVentaRapida()" style="background:#333;color:#fff;border:none;border-radius:0;padding:10px 16px;font-size:13px;cursor:pointer">✕</button>
+    </div>
+  </div>
+  <div id="vr-mapa-leaflet" style="flex:1;width:100%;min-height:0"></div>
+  <div id="vr-mapa-texto" style="padding:10px 16px;background:#111;color:#4CAF50;font-size:11px;text-align:center">Mueve el mapa hasta donde estás y toca el punto exacto</div>
+</div>
+
 <div id="mapa-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.9);z-index:99999;flex-direction:column">
   <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:#111">
     <div>
@@ -7847,6 +8095,6 @@ document.addEventListener('keypress', e => {
   <div id="mapa-coordenadas" style="padding:10px 16px;background:#111;color:#4CAF50;font-size:11px;text-align:center">Toca el mapa para seleccionar un punto</div>
 </div>
 
-<div id="version-tag-admin" style="position:fixed;left:0;bottom:0;background:#ff0066;color:#fff;font-size:10px;font-weight:900;padding:3px 8px;z-index:999998;letter-spacing:0.4px">ADMIN — 7 oct, 7:49 a.m. — caja1</div>
+<div id="version-tag-admin" style="position:fixed;left:0;bottom:0;background:#ff0066;color:#fff;font-size:10px;font-weight:900;padding:3px 8px;z-index:999998;letter-spacing:0.4px">ADMIN — 9 oct, 4:22 a.m. — ventarapida1</div>
 </body>
 </html>
